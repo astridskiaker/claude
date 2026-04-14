@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ArcGIS Map Load Performance Test</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f4f5f7;
+      color: #2c2c2c;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #ffffff;
+      border-bottom: 1px solid #dde1e7;
+      padding: 0 2rem;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+
+    .logo-mark {
+      width: 36px;
+      height: 36px;
+      background: #007ac2;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 700;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .logo-text {
+      font-size: 15px;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+
+    nav {
+      display: flex;
+      gap: 1.5rem;
+      align-items: center;
+    }
+
+    nav a {
+      font-size: 13.5px;
+      color: #555;
+      text-decoration: none;
+      padding: 4px 0;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    nav a:hover     { color: #007ac2; }
+    nav a.active    { color: #007ac2; border-bottom-color: #007ac2; }
+
+    /* ── Main ── */
+    main {
+      flex: 1;
+      padding: 2.5rem 2rem 3rem;
+      max-width: 820px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .page-intro {
+      margin-bottom: 1.5rem;
+    }
+
+    .page-intro h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 6px;
+    }
+
+    .page-intro p {
+      font-size: 14px;
+      color: #666;
+      line-height: 1.6;
+      max-width: 620px;
+    }
+
+    /* ── Performance cards ── */
+    .perf-panel {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    .perf-card {
+      background: #ffffff;
+      border: 1px solid #dde1e7;
+      border-radius: 8px;
+      padding: 14px 20px;
+      min-width: 180px;
+      flex: 1;
+    }
+
+    .perf-card .label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #888;
+      margin-bottom: 6px;
+    }
+
+    .perf-card .value {
+      font-size: 22px;
+      font-weight: 700;
+      color: #1a1a1a;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .perf-card .value.muted {
+      color: #aaa;
+      font-size: 15px;
+      font-weight: 400;
+      padding-top: 4px;
+    }
+
+    .perf-card .value.ready { color: #1a7a3f; }
+
+    .perf-card .sub {
+      font-size: 11px;
+      color: #999;
+      margin-top: 3px;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+      background: #ccc;
+      vertical-align: middle;
+      position: relative;
+      top: -1px;
+    }
+
+    .status-dot.pulsing {
+      background: #f0a500;
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    .status-dot.done { background: #1a7a3f; animation: none; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.4; transform: scale(0.8); }
+    }
+
+    /* ── Map wrapper ── */
+    .map-wrapper {
+      background: #ffffff;
+      border: 1px solid #dde1e7;
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: stretch;
+      padding: 1.5rem;
+    }
+
+    .iframe-container {
+      position: relative;
+      width: 700px;
+      max-width: 100%;
+    }
+
+    #mapFrame {
+      display: block;
+      width: 700px;
+      max-width: 100%;
+      height: 600px;
+      border: none;
+      border-radius: 6px;
+    }
+
+    /* Spinner overlay — hidden once iframe fires load */
+    #mapOverlay {
+      position: absolute;
+      inset: 0;
+      border-radius: 6px;
+      background: #f4f5f7;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      pointer-events: none;
+      transition: opacity 0.4s;
+    }
+
+    #mapOverlay.hidden {
+      opacity: 0;
+    }
+
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid #dde1e7;
+      border-top-color: #007ac2;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #mapOverlay p {
+      font-size: 13px;
+      color: #888;
+    }
+
+    /* ── Footer ── */
+    footer {
+      background: #ffffff;
+      border-top: 1px solid #dde1e7;
+      padding: 1rem 2rem;
+      text-align: center;
+      font-size: 12px;
+      color: #999;
+    }
+
+    footer span { color: #bbb; margin: 0 6px; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <a class="logo" href="#">
+      <div class="logo-mark">GIS</div>
+      <span class="logo-text">Map Test Harness</span>
+    </a>
+    <nav>
+      <a href="#" class="active">Performance</a>
+      <a href="#">Map Catalogue</a>
+      <a href="#">Settings</a>
+      <a href="#">Docs</a>
+    </nav>
+  </header>
+
+  <main>
+
+    <div class="page-intro">
+      <h1>ArcGIS Embedded Map — Load Performance Test</h1>
+      <p>
+        Measures the time from initial page load to the moment the embedded map
+        finishes loading. Use to benchmark load performance across browsers and
+        network conditions.
+      </p>
+    </div>
+
+    <div class="perf-panel">
+
+      <div class="perf-card">
+        <div class="label">Map Status</div>
+        <div class="value muted" id="statusValue">
+          <span class="status-dot pulsing" id="statusDot"></span>Loading…
+        </div>
+      </div>
+
+      <div class="perf-card">
+        <div class="label">Load Time</div>
+        <div class="value muted" id="loadTimeValue">—</div>
+        <div class="sub" id="loadTimeSub">waiting for iframe load event</div>
+      </div>
+
+      <div class="perf-card">
+        <div class="label">Loaded At</div>
+        <div class="value muted" id="timestampValue">—</div>
+        <div class="sub">local time</div>
+      </div>
+
+    </div>
+
+    <div class="map-wrapper">
+      <div class="iframe-container">
+        <iframe
+          id="mapFrame"
+          width="700"
+          height="600"
+          allow="local-network-access; geolocation"
+          title="Togets rute - 17. mai i Sandnes"
+          src="https://geodatasupport.maps.arcgis.com/apps/mapviewer/index.html?configurableview=true&webmap=c198a8d7b5264e49b7b410eff8e6a9ec&theme=light&heading=true&center=5.743262452079977,58.852382191075186&scale=18048">
+        </iframe>
+
+        <div id="mapOverlay">
+          <div class="spinner"></div>
+          <p>Laster kart…</p>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <footer>
+    ArcGIS Map Load Performance Test
+    <span>·</span>
+    Kun til intern bruk
+    <span>·</span>
+    <span id="footerDate"></span>
+  </footer>
+
+  <script>
+    // ── Timing origin ────────────────────────────────────────────────────────
+    // Use navigationStart so the clock covers the full page fetch, not just
+    // when this script block runs.
+    const t0 = (performance.timing && performance.timing.navigationStart)
+      ? performance.timing.navigationStart
+      : Date.now();
+
+    function elapsedMs() { return Date.now() - t0; }
+
+    // ── DOM refs ─────────────────────────────────────────────────────────────
+    const statusDot   = document.getElementById('statusDot');
+    const statusValue = document.getElementById('statusValue');
+    const loadTimeEl  = document.getElementById('loadTimeValue');
+    const loadTimeSub = document.getElementById('loadTimeSub');
+    const timestampEl = document.getElementById('timestampValue');
+    const overlay     = document.getElementById('mapOverlay');
+    const frame       = document.getElementById('mapFrame');
+
+    document.getElementById('footerDate').textContent =
+      new Date().toLocaleDateString('nb-NO', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    // ── Mark ready ───────────────────────────────────────────────────────────
+    let fired = false;
+
+    function markReady() {
+      if (fired) return;
+      fired = true;
+
+      const ms  = elapsedMs();
+      const now = new Date();
+
+      // Hide spinner overlay
+      overlay.classList.add('hidden');
+      setTimeout(() => overlay.style.display = 'none', 450);
+
+      // Status card
+      statusDot.classList.replace('pulsing', 'done');
+      statusValue.classList.replace('muted', 'ready');
+      statusValue.innerHTML = '<span class="status-dot done"></span>Klar';
+
+      // Load time card
+      loadTimeEl.classList.remove('muted');
+      loadTimeEl.textContent = ms >= 1000
+        ? (ms / 1000).toFixed(2) + '\u202fs'
+        : ms + '\u202fms';
+      loadTimeSub.textContent = 'fra navigationStart til iframe load';
+
+      // Timestamp card
+      timestampEl.classList.remove('muted');
+      timestampEl.textContent = now.toLocaleTimeString('nb-NO', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+      });
+    }
+
+    // ── iframe load event ────────────────────────────────────────────────────
+    // The browser fires this when the iframe's document (and its subresources)
+    // have finished loading — the most accurate signal available cross-origin.
+    frame.addEventListener('load', markReady);
+  </script>
+
+</body>
+</html>
